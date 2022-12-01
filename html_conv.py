@@ -1,7 +1,7 @@
 """
 
 Creates html-formatted text from telegram message with entitities.
-It does not creates links. I just don't need it. The ides was to create correct visual formatting. 
+It does not creates link, I just don't need it. The idea was to create correct visual formatting. 
 
 For python3.8+.
 Tested on Telethon 1.25.4.
