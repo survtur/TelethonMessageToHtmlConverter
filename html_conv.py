@@ -1,15 +1,16 @@
 """
-
 Creates html-formatted text from telegram message with entitities.
-It does not creates link, I just don't need it. The idea was to create correct visual formatting. 
-
+It does not creates link, I just don't need it. The idea was to create correct visual formatting.
 For python3.8+.
 Tested on Telethon 1.25.4.
+
+TODO: In order to make correct MessageEntityUrl:
+    _Tag creating function should accept not only entity, but also a text that it wraps OR full message. Shoud decide.
 """
 
-
 import html
-from typing import List, Optional, Dict, NamedTuple
+from dataclasses import dataclass
+from typing import List, Optional, Dict, NamedTuple, Callable, Any, Union
 
 import telethon.tl.types
 
@@ -19,15 +20,16 @@ class _Tag(NamedTuple):
     closing: str
 
 
-class _PositionChange(NamedTuple):
+@dataclass
+class _PositionChange:
     to_open: List[_Tag]
     to_close: List[_Tag]
     br: bool
 
+
 _PRE_TAG = _Tag('<pre>', '</pre>')
 
-
-_ENTITIES_TO_TAG: Dict[str, Optional[_Tag]] = {
+_ENTITIES_TO_TAG: Dict[str, Optional[Union[_Tag, Callable[[Any], _Tag]]]] = {
     'MessageEntityItalic': _Tag('<i>', '</i>'),
     'MessageEntityBold': _Tag('<b>', '</b>'),
     'MessageEntityCode': _PRE_TAG,
@@ -37,6 +39,8 @@ _ENTITIES_TO_TAG: Dict[str, Optional[_Tag]] = {
     'MessageEntityPhone': None,
     'MessageEntityHashtag': None,
     'MessageEntityUrl': None,
+    # If you want href, use somethink like this:
+    # 'MessageEntityTextUrl': lambda e: _Tag(f'<a href="{html.escape(e.url)}">', '</a>'),
     'MessageEntityTextUrl': None,
 }
 """
@@ -57,6 +61,7 @@ class MessageToHtmlConverter:
             0: _PositionChange([], [], False),
             len(b16): _PositionChange([], [], False)
         }
+        
         positions.update(self._prepare_positions_utf16le(entities))
 
         for i in range(len(message)):
@@ -113,7 +118,8 @@ class MessageToHtmlConverter:
                 positions[end] = _PositionChange([], [], False)
             tag = _ENTITIES_TO_TAG[type(e).__name__]
             if tag:
+                if callable(tag):
+                    tag = tag(e)
                 positions[start].to_open.append(tag)
                 positions[end].to_close.insert(0, tag)
         return positions
-
