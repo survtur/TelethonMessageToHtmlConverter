@@ -7,3 +7,7 @@ It needs `message` and `entities` fields from `telethon.tl.custom.message.Messag
       html = converter.html
       
  Not all `MessageEntity*` items are processing. You may add new one to `_ENTITIES_TO_TAG` dict.
+
+### See also
+
+  - [Telegram docs. Styled text with message entities/](https://core.telegram.org/api/entities)
