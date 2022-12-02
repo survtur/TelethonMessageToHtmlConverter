@@ -30,11 +30,15 @@ class _PositionChange:
 
 _TagMakerFunction = Callable[[TypeMessageEntity, str], _Tag]
 
+def _url_conv(entity, s: str) -> _Tag:
+    return _Tag(f'<a href="{escape(s)}">', '</a>')
+
+
 # Main convertsion table.
 # Each MessageEntiry can be converted to:
-#   - None - does nothing. Igonres this entity.
-#   - _Tag object - when tag is simple and no parameters required.
-#   - _Tag maker function - A function that receives two arguments: entity and string it covers. Should return _Tag.
+#   1) None - When entity should be ignored.
+#   2) _Tag object - when required tag is simple.
+#   3) Function that receives two arguments: entity and string it covers. Should return _Tag.
 _ENTITIES_TO_TAG: Dict[str, Union[None, _Tag, _TagMakerFunction]] = {
     'MessageEntityItalic': _Tag('<i>', '</i>'),
     'MessageEntityBold': _Tag('<b>', '</b>'),
@@ -44,7 +48,7 @@ _ENTITIES_TO_TAG: Dict[str, Union[None, _Tag, _TagMakerFunction]] = {
     'MessageEntityUnderline': _Tag('<span style="text-decoration: underline">', '</span>'),
     'MessageEntityPhone': None,
     'MessageEntityHashtag': None,
-    'MessageEntityUrl': lambda e, s: _Tag(f'<a href="{escape(s)}">', '</a>'),
+    'MessageEntityUrl': _url_conv,
     'MessageEntityTextUrl': lambda e, s: _Tag(f'<a href="{escape(e.url)}">', '</a>'),
 }
 """
