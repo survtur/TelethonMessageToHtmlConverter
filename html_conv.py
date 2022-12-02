@@ -1,18 +1,19 @@
 """
 Creates html-formatted text from telegram message with entitities.
-It does not creates link, I just don't need it. The idea was to create correct visual formatting.
 For python3.8+.
 Tested on Telethon 1.25.4.
 
-TODO: In order to make correct MessageEntityUrl:
-    _Tag creating function should accept not only entity, but also a text that it wraps OR full message. Shoud decide.
+It uses Telethon module just for type hinting. Feel free to delete it.
+
 """
 
-import html
+from html import escape
 from dataclasses import dataclass
-from typing import List, Optional, Dict, NamedTuple, Callable, Any, Union
+from typing import List, Optional, Dict, NamedTuple, Callable, Union
 
-import telethon.tl.types
+from telethon.tl.types import TypeMessageEntity
+
+_UTF_16 = 'utf-16-le'
 
 
 class _Tag(NamedTuple):
@@ -27,21 +28,24 @@ class _PositionChange:
     br: bool
 
 
-_PRE_TAG = _Tag('<pre>', '</pre>')
+_TagMakerFunction = Callable[[TypeMessageEntity, str], _Tag]
 
-_ENTITIES_TO_TAG: Dict[str, Optional[Union[_Tag, Callable[[Any], _Tag]]]] = {
+# Main convertsion table.
+# Each MessageEntiry can be converted to:
+#   - None - does nothing. Igonres this entity.
+#   - _Tag object - when tag is simple and no parameters required.
+#   - _Tag maker function - A function that receives two arguments: entity and string it covers. Should return _Tag.
+_ENTITIES_TO_TAG: Dict[str, Union[None, _Tag, _TagMakerFunction]] = {
     'MessageEntityItalic': _Tag('<i>', '</i>'),
     'MessageEntityBold': _Tag('<b>', '</b>'),
-    'MessageEntityCode': _PRE_TAG,
+    'MessageEntityCode': _Tag('<pre>', '</pre>'),
     'MessageEntityStrike': _Tag('<s>', '</s>'),
     'MessageEntitySpoiler': _Tag('[', ']'),
     'MessageEntityUnderline': _Tag('<span style="text-decoration: underline">', '</span>'),
     'MessageEntityPhone': None,
     'MessageEntityHashtag': None,
-    'MessageEntityUrl': None,
-    # If you want href, use somethink like this:
-    # 'MessageEntityTextUrl': lambda e: _Tag(f'<a href="{html.escape(e.url)}">', '</a>'),
-    'MessageEntityTextUrl': None,
+    'MessageEntityUrl': lambda e, s: _Tag(f'<a href="{escape(s)}">', '</a>'),
+    'MessageEntityTextUrl': lambda e, s: _Tag(f'<a href="{escape(e.url)}">', '</a>'),
 }
 """
 Describes now start and end of entity should be represented in HTML
@@ -49,77 +53,91 @@ Describes now start and end of entity should be represented in HTML
 
 
 class MessageToHtmlConverter:
-    html: str
 
-    def __init__(self, message: str, entities: Optional[List[telethon.tl.types.TypeMessageEntity]]):
+    def __init__(self, message: str, entities: Optional[List[TypeMessageEntity]]):
+
         if not entities and '\n' not in message:
             self.html = message
             return
 
-        b16 = message.encode('utf-16-le')
-        positions: Dict[int, _PositionChange] = {
-            0: _PositionChange([], [], False),
-            len(b16): _PositionChange([], [], False)
-        }
-        
-        positions.update(self._prepare_positions_utf16le(entities))
+        self._message = message
+        self.html = ''
 
-        for i in range(len(message)):
-            if message[i] == '\n':
-                i = len(message[0:i].encode('utf-16-le'))
-                if i not in positions:
-                    positions[i] = _PositionChange([], [], False)
-                positions[i].br = True
+        # Usage of UTF-16 helps to get correct entity position.
+        # Pros: There is no need of calculating codepoints and bytes. Just multiply offset/length by 2
+        #       and everything will be correct.
+        # Cons: Many utf encode/decode operaions.
+        self._message_b16 = message.encode(_UTF_16)
 
-        all_separations_set = set(positions.keys())
-        separation_list = list(sorted(all_separations_set))
-        out: str = ''
+        # This dict contains list of positions in message, where tag should be opened or closed,
+        # or where paragraph or line break should be inserted.
+        self._positions: Dict[int, _PositionChange] = {}
+        self._ensure_position_exists(0)
+        self._ensure_position_exists(len(self._message_b16))
+        self._prepare_entity_positions_utf16le(entities)
+        self._prerape_br_positions()
+
+        separations_points = list(sorted(self._positions.keys()))
+
+        # Keep tracking of opened tags. It helps to decide should <br/> or </p><p> be user instead of "\n"
+        # You may check that when we close tags, the last on is what should be closed.
+        # An that in the end this list is empty.
         opened_tags: List[_Tag] = []
-        for pos in range(len(separation_list)):
-            index = separation_list[pos]
-            if index == len(b16):
+
+        for pos in range(len(separations_points)):
+            index = separations_points[pos]
+            if index == len(self._message_b16):
                 next_index = None
             else:
-                next_index = separation_list[pos + 1]
+                next_index = separations_points[pos + 1]
 
-            unchanged_part = b16[index:next_index].decode('utf-16-le')
+            unchanged_part = self._message_b16[index:next_index].decode(_UTF_16)
 
-            for t in positions[index].to_close:
-                popped = opened_tags.pop()
-                assert popped == t
-                out += t.closing
+            for t in self._positions[index].to_close:
+                opened_tags.pop()
+                self.html += t.closing
 
-            if positions[index].br:
-                if _PRE_TAG in opened_tags:
-                    out += '<br/>'
+            if self._positions[index].br:
+                if _ENTITIES_TO_TAG['MessageEntityCode'] in opened_tags:
+                    self.html += '<br/>'
                 else:
-                    out += "</p><p>"
+                    self.html += "</p><p>"
 
-            for t in positions[index].to_open:
+            for t in self._positions[index].to_open:
                 opened_tags.append(t)
-                out += t.opening
+                self.html += t.opening
 
-            out += html.escape(unchanged_part.replace('\n', ''))
+            self.html += escape(unchanged_part.replace('\n', ''))
 
-        self.html = '<p>' + out + '</p>'
+        self.html = '<p>' + self.html + '</p>'
 
-    @staticmethod
-    def _prepare_positions_utf16le(entities):
+    def _prerape_br_positions(self):
+        for i in range(len(self._message)):
+            if self._message[i] == '\n':
+                i = len(self._message[0:i].encode(_UTF_16))
+                self._ensure_position_exists(i)
+                self._positions[i].br = True
+
+    def _prepare_entity_positions_utf16le(self, entities) -> None:
         if not entities:
-            return {}
+            return
 
-        positions: Dict[int, _PositionChange] = {}
         for e in entities:
             start = e.offset * 2
             end = (e.offset + e.length) * 2
-            if start not in positions:
-                positions[start] = _PositionChange([], [], False)
-            if end not in positions:
-                positions[end] = _PositionChange([], [], False)
+            self._ensure_position_exists(start)
+            self._ensure_position_exists(end)
             tag = _ENTITIES_TO_TAG[type(e).__name__]
             if tag:
+
                 if callable(tag):
-                    tag = tag(e)
-                positions[start].to_open.append(tag)
-                positions[end].to_close.insert(0, tag)
-        return positions
+                    txt_bytes = self._message_b16[start:end]
+                    txt = txt_bytes.decode(_UTF_16)
+                    tag = tag(e, txt)
+
+                self._positions[start].to_open.append(tag)
+                self._positions[end].to_close.insert(0, tag)
+
+    def _ensure_position_exists(self, i: int):
+        if i not in self._positions:
+            self._positions[i] = _PositionChange([], [], False)
