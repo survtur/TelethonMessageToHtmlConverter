@@ -36,20 +36,29 @@ def _url_conv(entity, s: str) -> _Tag:
 
 # Main convertsion table.
 # Each MessageEntiry can be converted to:
-#   1) None - When entity should be ignored.
-#   2) _Tag object - when required tag is simple.
+#   1) None - Entity should be ignored. Keep text content and do not wrap it with any tag.
+#   2) _Tag object - When required tag is simple, it has static design of open and closing tag.
 #   3) Function that receives two arguments: entity and string it covers. Should return _Tag.
 _ENTITIES_TO_TAG: Dict[str, Union[None, _Tag, _TagMakerFunction]] = {
-    'MessageEntityItalic': _Tag('<i>', '</i>'),
+    'MessageEntityBankCard': None,
+    'MessageEntityBlockquote': _Tag('<blockquote>', '</blockquote>'),
     'MessageEntityBold': _Tag('<b>', '</b>'),
+    'MessageEntityBotCommand': None,
+    'MessageEntityCashtag': None,
     'MessageEntityCode': _Tag('<pre>', '</pre>'),
-    'MessageEntityStrike': _Tag('<s>', '</s>'),
-    'MessageEntitySpoiler': _Tag('[', ']'),
-    'MessageEntityUnderline': _Tag('<span style="text-decoration: underline">', '</span>'),
-    'MessageEntityPhone': None,
+    'MessageEntityCustomEmoji': None,
     'MessageEntityHashtag': None,
-    'MessageEntityUrl': _url_conv,
+    'MessageEntityItalic': _Tag('<i>', '</i>'),
+    'MessageEntityMention': None,
+    'MessageEntityMentionName': None,
+    'MessageEntityPhone': None,
+    'MessageEntityPhone': None,
+    'MessageEntityPre': _Tag('<pre>', '</pre>'),
+    'MessageEntitySpoiler': _Tag('[', ']'),
+    'MessageEntityStrike': _Tag('<s>', '</s>'),
     'MessageEntityTextUrl': lambda e, s: _Tag(f'<a href="{escape(e.url)}">', '</a>'),
+    'MessageEntityUnderline': _Tag('<span style="text-decoration: underline">', '</span>'),
+    'MessageEntityUrl': _url_conv,
 }
 """
 Describes now start and end of entity should be represented in HTML
